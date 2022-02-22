@@ -7,23 +7,45 @@
 
 import SpriteKit
 import GameplayKit
+import GameController
 
 class GameScene: SKScene {
     
-    private var label : SKLabelNode?
     private var spinnyNode : SKShapeNode?
+    private var vector : CGVector = CGVector.init(dx: 0, dy: 0)
+    private var lastUpdateTimeInterval: TimeInterval = 0
+    private static let minimumUpdateInterval = 1.0 / 60.0
+    private var backgroundColorIndex : Int = 0;
+    
+    private var colors : [SKColor] = [
+        SKColor.red, SKColor.green, SKColor.blue, SKColor.cyan,
+        SKColor.yellow, SKColor.magenta, SKColor.orange, SKColor.purple
+    ]
+    
+    private var backgroundColors : [SKColor] = [
+        SKColor.black, SKColor.darkGray, SKColor.gray,
+        SKColor.lightGray, SKColor.white, SKColor.lightGray, SKColor.gray, SKColor.darkGray
+    ]
+    
+    func getButtons(controller: GCExtendedGamepad) -> [GCControllerButtonInput] {
+        return [
+            controller.dpad.left,
+            controller.dpad.right,
+            controller.dpad.up,
+            controller.dpad.down,
+            controller.buttonA,
+            controller.buttonB,
+            controller.buttonX,
+            controller.buttonY
+        ]
+    }
     
     override func didMove(to view: SKView) {
         
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
-        }
+        self.observeForGameControllers()
         
         // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
+        let w = (self.size.width + self.size.height) * 0.1
         self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
         
         if let spinnyNode = self.spinnyNode {
@@ -36,53 +58,61 @@ class GameScene: SKScene {
         }
     }
     
-    
-    func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
-        }
+    func observeForGameControllers() {
+        NotificationCenter.default.addObserver(self, selector: #selector(self.connectControllers), name: NSNotification.Name.GCControllerDidConnect, object: nil)
     }
     
-    func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
-        }
-    }
-    
-    func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
-        }
-    }
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
+    @objc func connectControllers(notification : Notification) {
+        
+        let movementHandler: GCControllerDirectionPadValueChangedHandler = { [unowned self] _, xValue, yValue in
+            self.movementHandler(x: xValue, y: yValue)
         }
         
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
+        let colorChangeHandler : GCControllerButtonTouchedChangedHandler = { _, _, pressed, touched in self.colorChangeHandler(pressed: pressed, touched: touched) }
+        
+        let controller = notification.object as! GCController
+        
+        if controller.extendedGamepad == nil {
+            return
+        }
+        
+        controller.extendedGamepad?.leftThumbstick.valueChangedHandler = movementHandler
+        controller.extendedGamepad?.rightThumbstick.valueChangedHandler = movementHandler
+        
+        for button in self.getButtons(controller: controller.extendedGamepad!) {
+            button.touchedChangedHandler = colorChangeHandler
+        }
     }
     
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
+    func movementHandler(x: Float, y: Float) {
+        let length = hypotf(x, y)
+        if length > 0.0 {
+            self.vector = CGVector(dx: CGFloat(x), dy: CGFloat(y))
+        }
+        else {
+            self.vector = CGVector(dx: 0, dy: 0)
+        }
     }
     
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+    func colorChangeHandler(pressed: Bool, touched: Bool) {
+        if !touched { return }
+        self.backgroundColorIndex = (self.backgroundColorIndex + 1) % self.backgroundColors.count
     }
     
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+    func addNodeAtPoint(point: CGPoint, currentTime: TimeInterval) {
+        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
+            n.position = point
+            n.strokeColor = self.colors[Int(currentTime.truncatingRemainder(dividingBy: Double(self.colors.count)))]
+            self.addChild(n)
+        }
     }
-    
     
     override func update(_ currentTime: TimeInterval) {
-        // Called before each frame is rendered
+        let w = (self.size.height + self.size.width) * 0.1
+        let width = ((self.size.width - w) / 2.0) * self.vector.dx
+        let height = ((self.size.height - w) / 2.0) * self.vector.dy
+        
+        self.addNodeAtPoint(point: CGPoint.init(x: width, y: height), currentTime: currentTime)
+        self.backgroundColor = self.backgroundColors[self.backgroundColorIndex]
     }
 }
